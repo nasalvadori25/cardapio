@@ -1,0 +1,60 @@
+name: Atualizar fotos do cardapio
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"   # todo dia ~06:17 (horario de Brasilia)
+
+permissions:
+  contents: write
+
+jobs:
+  fotos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pillow
+      - name: Baixar fotos da Saipos e converter para JPG
+        run: |
+          python3 - <<'EOF'
+          import io, json, os, re, urllib.request
+          from PIL import Image
+          H = {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+              "Referer": "https://alphabri.saipos.com/",
+          }
+          def get(u):
+              return urllib.request.urlopen(urllib.request.Request(u, headers=H), timeout=40).read()
+          d = json.loads(get("https://delivery-api.saipos.com/v1/stores/80679/sales/view-data"))
+          paths = set(i["img_path"] for i in d["items"] if i.get("img_path"))
+          paths.add("saipos-estatico/site-data/80679/cover/ecb9a489a22231d084dc19c13e22037dPissani-Burratacomlim%C3%A3o500g.png")
+          paths.add("saipos-estatico/site-data/80679/logo/8427eb6fa3b0d7bf2be34f9ab82eb350AlphaBriLogoClaroCirculo.jpeg")
+          os.makedirs("img", exist_ok=True)
+          ok = skip = fail = 0
+          for p in sorted(paths):
+              stem = re.sub(r"[^A-Za-z0-9_]", "", os.path.splitext(os.path.basename(p))[0])
+              out = "img/%s.jpg" % stem
+              if os.path.exists(out):
+                  skip += 1
+                  continue
+              try:
+                  raw = get("https://static.saipos.com/" + p)
+                  im = Image.open(io.BytesIO(raw))
+                  print("OK", p.split("/")[-1][:40], im.format, im.size, len(raw) // 1024, "KB")
+                  im = im.convert("RGBA")
+                  bg = Image.new("RGB", im.size, (255, 255, 255))
+                  bg.paste(im, mask=im.split()[3])
+                  big = "/cover/" in p
+                  bg.thumbnail((1000, 1000) if big else (320, 320))
+                  bg.save(out, "JPEG", quality=82, optimize=True, progressive=False)
+                  ok += 1
+              except Exception as e:
+                  print("FALHOU", p, e)
+                  fail += 1
+          print("convertidas:", ok, "ja existiam:", skip, "falhas:", fail)
+          EOF
+      - name: Salvar no repositorio
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Atualiza fotos do cardapio
+          file_pattern: "img/*.jpg"
