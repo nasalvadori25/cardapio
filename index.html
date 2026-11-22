@@ -149,7 +149,7 @@ a{color:inherit;text-decoration:none}
 <section class="category-title" id="cat8">Cervejas</section>
 <div class="item-cont"><div class="item-pic"><img src="img/56b1bca9d78f87da19e35d01f0da461f.jpg" onerror="this.onerror=null;this.src='https://static.saipos.com/saipos-estatico/img-items/80679/store_item/56b1bca9d78f87da19e35d01f0da461f.png'" alt=""></div><div class="item-txt"><h6 class="item-title">Cerveja Heineken Long Neck 330ml</h6><p class="item-price">R$ 14,90</p></div></div></div>
   </div>
-  <div class="foot">Siga-nos no Instagram @alphabri.br 🙌🏼<br><small>Preços atualizados automaticamente pela Saipos</small></div>
+  <div class="foot">Siga-nos no Instagram @alphabri.br 🙌🏼<br><small id="stamp">Preços atualizados automaticamente pela Saipos</small></div>
 </div>
 <script>
 (function(){
@@ -221,23 +221,35 @@ a{color:inherit;text-decoration:none}
         body+=h+'</div>';
       }
     }
-    if(order.length<3){return;}
+    if(order.length<3){return false;}
     document.getElementById('tabs').innerHTML=nav;
     document.getElementById('menu').innerHTML=body;
     bind();
+    return true;
   }
 
   bind();
-  try{
-    var xhr=new XMLHttpRequest();
-    xhr.open('GET',API+'?t='+new Date().getTime(),true);
-    xhr.timeout=15000;
-    xhr.onreadystatechange=function(){
-      if(xhr.readyState!==4||xhr.status!==200){return;}
-      try{render(JSON.parse(xhr.responseText));}catch(e){}
-    };
-    xhr.send();
-  }catch(e){}
+  var live=false;
+  function stamp(t){var el=document.getElementById('stamp');if(el){el.innerHTML=t;}}
+  function load(url,cb){
+    try{
+      var xhr=new XMLHttpRequest();
+      xhr.open('GET',url+(url.indexOf('?')>-1?'&':'?')+'t='+new Date().getTime(),true);
+      xhr.timeout=20000;
+      xhr.onreadystatechange=function(){
+        if(xhr.readyState!==4||xhr.status!==200){return;}
+        try{cb(JSON.parse(xhr.responseText));}catch(e){}
+      };
+      xhr.send();
+    }catch(e){}
+  }
+  load('menu.json',function(d){
+    if(live){return;}
+    if(render(d)){stamp('Pre&ccedil;os conferidos com a Saipos'+(d.gerado?' em '+esc(d.gerado):''));}
+  });
+  load(API,function(d){
+    if(render(d)){live=true;stamp('Pre&ccedil;os ao vivo da Saipos');}
+  });
 })();
 </script>
 </body>
