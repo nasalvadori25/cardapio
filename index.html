@@ -229,27 +229,53 @@ a{color:inherit;text-decoration:none}
   }
 
   bind();
-  var live=false;
+  var live=false, lastT='', lastTouch=new Date().getTime(), hiddenAt=0;
+  function now(){return new Date().getTime();}
   function stamp(t){var el=document.getElementById('stamp');if(el){el.innerHTML=t;}}
-  function load(url,cb){
+  function load(url,ok,fail){
     try{
-      var xhr=new XMLHttpRequest();
-      xhr.open('GET',url+(url.indexOf('?')>-1?'&':'?')+'t='+new Date().getTime(),true);
+      var xhr=new XMLHttpRequest(), done=false;
+      xhr.open('GET',url+(url.indexOf('?')>-1?'&':'?')+'t='+now(),true);
       xhr.timeout=20000;
       xhr.onreadystatechange=function(){
-        if(xhr.readyState!==4||xhr.status!==200){return;}
-        try{cb(JSON.parse(xhr.responseText));}catch(e){}
+        if(xhr.readyState!==4||done){return;}
+        done=true;
+        if(xhr.status===200){
+          try{ok(JSON.parse(xhr.responseText),xhr.responseText);return;}catch(e){}
+        }
+        if(fail){fail();}
       };
       xhr.send();
-    }catch(e){}
+    }catch(e){if(fail){fail();}}
   }
-  load('menu.json',function(d){
-    if(live){return;}
-    if(render(d)){stamp('Pre&ccedil;os conferidos com a Saipos'+(d.gerado?' em '+esc(d.gerado):''));}
-  });
-  load(API,function(d){
-    if(render(d)){live=true;stamp('Pre&ccedil;os ao vivo da Saipos');}
-  });
+  function hora(){var d=new Date(),h=d.getHours(),m=d.getMinutes();return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;}
+  function useCopy(){
+    load('menu.json',function(d,t){
+      if(live){return;}
+      if(t===lastT||render(d)){lastT=t;stamp('Pre&ccedil;os conferidos com a Saipos'+(d.gerado?' em '+esc(d.gerado):''));}
+    });
+  }
+  function refresh(){
+    load(API,function(d,t){
+      if(t===lastT||render(d)){lastT=t;live=true;stamp('Pre&ccedil;os ao vivo da Saipos &middot; '+hora());}
+    },function(){live=false;useCopy();});
+  }
+  useCopy();
+  refresh();
+  /* a cada 5 min confere precos; se ninguem tocou na tela ha 15 min, recarrega a pagina inteira */
+  setInterval(function(){
+    if(now()-lastTouch>15*60000){location.reload();return;}
+    refresh();
+  },5*60000);
+  function touched(){lastTouch=now();}
+  document.addEventListener('touchstart',touched,false);
+  document.addEventListener('mousedown',touched,false);
+  window.addEventListener('scroll',touched,false);
+  /* ao acender a tela depois de 1 min apagada, recarrega a pagina inteira */
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){hiddenAt=now();return;}
+    if(hiddenAt&&now()-hiddenAt>60000){location.reload();}else{refresh();}
+  },false);
 })();
 </script>
 </body>
