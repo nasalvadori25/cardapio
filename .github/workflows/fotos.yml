@@ -3,7 +3,8 @@ name: Atualizar fotos do cardapio
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 9 * * *"   # todo dia ~06:17 (horario de Brasilia)
+    - cron: "*/30 12-21 * * 1-6"   # a cada 30 min, seg-sab, 9h-18h (Brasilia)
+    - cron: "17 9 * * *"           # todo dia ~06:17 (Brasilia)
 
 permissions:
   contents: write
@@ -14,10 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install pillow
-      - name: Baixar fotos da Saipos e converter para JPG
+      - name: Copiar cardapio e fotos da Saipos
         run: |
           python3 - <<'EOF'
           import io, json, os, re, urllib.request
+          from datetime import datetime, timezone, timedelta
           from PIL import Image
           H = {
               "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
@@ -26,6 +28,37 @@ jobs:
           def get(u):
               return urllib.request.urlopen(urllib.request.Request(u, headers=H), timeout=40).read()
           d = json.loads(get("https://delivery-api.saipos.com/v1/stores/80679/sales/view-data"))
+
+          # 1) copia enxuta do cardapio (menu.json), so grava se algo mudou
+          its = []
+          for i in d["items"]:
+              c = i.get("category_item") or {}
+              its.append({
+                  "desc_store_item": i.get("desc_store_item"),
+                  "desc_store_item_delivery": i.get("desc_store_item_delivery"),
+                  "detail": i.get("detail"),
+                  "img_path": i.get("img_path"),
+                  "order": i.get("order"),
+                  "category_item": {"desc_store_category_item": c.get("desc_store_category_item"), "order": c.get("order"), "enabled": c.get("enabled")},
+                  "variations": [{"enabled": v.get("enabled"), "price": v.get("price"),
+                                  "promotions": [{"enabled": p.get("enabled"), "price": p.get("price")} for p in (v.get("promotions") or [])]}
+                                 for v in (i.get("variations") or [])],
+                  "choices": [{"id_store_choice": x.get("id_store_choice")} for x in (i.get("choices") or [])],
+              })
+          chs = [{"id_store_choice": c.get("id_store_choice"), "min_choices": c.get("min_choices")} for c in (d.get("choices") or [])]
+          new = {"items": its, "choices": chs}
+          old = None
+          if os.path.exists("menu.json"):
+              o = json.load(open("menu.json", encoding="utf-8"))
+              old = {"items": o.get("items"), "choices": o.get("choices")}
+          if new != old and len(its) > 10:
+              new["gerado"] = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m %H:%M")
+              json.dump(new, open("menu.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+              print("menu.json atualizado:", new["gerado"])
+          else:
+              print("menu.json sem mudancas")
+
+          # 2) fotos novas convertidas para JPG (iPad antigo nao le WebP)
           paths = set(i["img_path"] for i in d["items"] if i.get("img_path"))
           paths.add("saipos-estatico/site-data/80679/cover/ecb9a489a22231d084dc19c13e22037dPissani-Burratacomlim%C3%A3o500g.png")
           paths.add("saipos-estatico/site-data/80679/logo/8427eb6fa3b0d7bf2be34f9ab82eb350AlphaBriLogoClaroCirculo.jpeg")
@@ -40,21 +73,19 @@ jobs:
               try:
                   raw = get("https://static.saipos.com/" + p)
                   im = Image.open(io.BytesIO(raw))
-                  print("OK", p.split("/")[-1][:40], im.format, im.size, len(raw) // 1024, "KB")
                   im = im.convert("RGBA")
                   bg = Image.new("RGB", im.size, (255, 255, 255))
                   bg.paste(im, mask=im.split()[3])
-                  big = "/cover/" in p
-                  bg.thumbnail((1000, 1000) if big else (320, 320))
+                  bg.thumbnail((1000, 1000) if "/cover/" in p else (320, 320))
                   bg.save(out, "JPEG", quality=82, optimize=True, progressive=False)
                   ok += 1
               except Exception as e:
                   print("FALHOU", p, e)
                   fail += 1
-          print("convertidas:", ok, "ja existiam:", skip, "falhas:", fail)
+          print("fotos convertidas:", ok, "ja existiam:", skip, "falhas:", fail)
           EOF
       - name: Salvar no repositorio
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: Atualiza fotos do cardapio
-          file_pattern: "img/*.jpg"
+          commit_message: Atualiza cardapio
+          file_pattern: "img/*.jpg menu.json"
